@@ -50,8 +50,8 @@ class SqlTableAttribute(object):
             return False
         self.content.append(value)
         return True
-        
-        
+
+
     def isValueBiggerThanLength(self, value):
         maxIntValue = int('9'*self.length)
         if self.typ == 'varchar':
@@ -68,12 +68,21 @@ class SqlTable(object):
         self.name = name
         self.attributes = {}
         self.addAttribute('ID', 'int', True, True, 11)
-        
+
+
     def addAttribute(self, name, typ, autoIncrement=False, isPrimaryKey=False, length=255):
         attribute = SqlTableAttribute(name, typ, autoIncrement, isPrimaryKey, length)
         self.attributes[name] = attribute
-        
+
+
     def addData(self, **keyWordArgs):
+        if not self.checkAttributes(keyWordArgs):
+            return False
+        for key in self.attributes.keys():
+            self.attributes[key].addValue(keyWordArgs[key])
+
+
+    def checkAttributes(self, keyWordArgs):
         for key in keyWordArgs:
             if not key in self.attributes.keys():
                 print 'Attribute "' + key + '" does not exists in table "' + self.name + '"!'
@@ -82,19 +91,19 @@ class SqlTable(object):
             if not key in keyWordArgs.keys():
                 print 'Attribute "' + key + '" expected!'
                 return False
-        for key in self.attributes.keys():
-            self.attributes[key].addValue(keyWordArgs[key])
-
+        return True
 
 
 class SqlDatabase(object):
     def __init__(self, name):
         self.name = name
         self.tables = {}
-        
+
+
     def addTable(self, name):
         self.tables[name] = SqlTable(name)
-        
+
+
     def showDatabase(self):
         database = {}
         for table in self.tables.keys():
@@ -104,39 +113,31 @@ class SqlDatabase(object):
         print json.dumps(database, indent=4)
 
 
-
-
-
-with open('usergroup.json','r') as f:
-    userGroup = json.load(f)
-    types = userGroup['types']
-    users = userGroup['users']
-    groups = userGroup['groups']
+def readStructureAndCreateDatabase(fileName):
+    with open(fileName,'r') as f:
+        userGroup = json.load(f)
+        types = userGroup['types']
+        users = userGroup['users']
+        groups = userGroup['groups']
     
+    db = SqlDatabase('CrashCom')
 
-db = SqlDatabase('CrashCom')
+    db.addTable('ObjektTyp')
+    db.tables['ObjektTyp'].addAttribute('Type', 'varchar')
+    for ID, typ in enumerate(types):
+        db.tables['ObjektTyp'].addData(ID=ID, Type=typ)
 
-db.addTable('ObjektTyp')
-db.tables['ObjektTyp'].addAttribute('Type', 'varchar')
-for ID, typ in enumerate(types):
-    db.tables['ObjektTyp'].addData(ID=ID, Type=typ)
+    db.addTable('Gruppe')
+    db.tables['Gruppe'].addAttribute('Name', 'varchar')
+    for ID, group in enumerate(groups):
+        db.tables['Gruppe'].addData(ID=ID, Name=group)
 
-db.addTable('Gruppe')
-db.tables['Gruppe'].addAttribute('Name', 'varchar')
-for ID, group in enumerate(groups):
-    db.tables['Gruppe'].addData(ID=ID, Name=group)
+    db.addTable('Benutzer')
+    db.tables['Benutzer'].addAttribute('Name', 'varchar')
+    for ID, user in enumerate(users):
+        db.tables['Benutzer'].addData(ID=ID, Name=user)
 
-db.addTable('Benutzer')
-db.tables['Benutzer'].addAttribute('Name', 'varchar')
-for ID, user in enumerate(users):
-    db.tables['Benutzer'].addData(ID=ID, Name=user)
-
-db.showDatabase()
-
-
-
-
-
+    return db
 
 
 class MySQLClient(object):
@@ -181,44 +182,8 @@ class MySQLClient(object):
             print 'Syntax Error!'
 
 
-
-
-
+db = readStructureAndCreateDatabase('usergroup.json')
+db.showDatabase()
 
 sql = MySQLClient('localhost', 3306, 'root', 'bbbbbb', 'CrashCom')
 sql.connect()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#~ 
-#~ user = []
-#~ user.append('Dietmar Renzen')
-#~ user.append('Peter Klug')
-#~ user.append('Ernst Verse')
-#~ user.append('Vera Stimmung')
-#~ user.append('Dieter Gross')
-#~ user.append('Evelyn Schmal')
-#~ user.append('Ottfried Kall')
-#~ user.append('Tom schmächtle')
-#~ user.append('Paul Starke')
-#~ user.append('Raimund Reim')
-#~ user.append('Dirk Nagel')
-#~ user.append('Erwin Schmitz')
-#~ user.append('Clara Sommer')
-#~ user.append('Herrmann Winter')
-#~ user.append('Peter Frühling')
-#~ user.append('Carmen Herbst')
-#~ user.append('Werner Fassnacht')
-#~ user.append('Claudia Jahr')
-#~ user.append('Marlies Stunde')
