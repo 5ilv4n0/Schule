@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-#  ADmin.py
+#  project.py
 #  
 #  Copyright 2012 Silvano Wegener <silvano@DV8000>
 #  
@@ -20,170 +20,236 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #  
-#  
+#  AdminPassword = 'Bbbbbb6'
+
+#con.createTable(name='Benutzer', attributes=['UID int 11 primaryKey autoIncrement', 'Name varchar 255', 'Gruppe_GID int 11'], foreignKeys=['Gruppe GID'])
 
 
-import MySQLdb as _mysql
-import sys, json
+import sys, os, json
+import win32com
+
+if os.name == 'nt':
+    import _mysql    
+else:
+    import MySQLdb as _mysql
 
 
-def makeIntOrUseDefault(value, default):
+
+def makeIntOrUseDefault(value, defaultValue=0):
     try:
         value = int(value)
         return value
     except ValueError:
-        return default
+        return defaultValue
 
 
-class SqlTableAttribute(object):
-    def __init__(self, name, typ, autoIncrement=False, isPrimaryKey=False, length=255):
-        self.name = name
-        self.typ = typ
-        self.autoIncrement = autoIncrement
-        self.isPrimaryKey = isPrimaryKey
-        self.length = length
-        self.content = []
-
-
-    def addValue(self, value):
-        if self.isValueBiggerThanLength(value):
-            return False
-        self.content.append(value)
-        return True
-
-
-    def isValueBiggerThanLength(self, value):
-        maxIntValue = int('9'*self.length)
-        if self.typ == 'varchar':
-            if len(value) > self.length:
-                return True
-        elif self.typ == 'int':
-            if value > maxIntValue:
-                return True
-        return False
-
-
-class SqlTable(object):
-    def __init__(self, name):
-        self.name = name
-        self.attributes = {}
-        self.addAttribute('ID', 'int', True, True, 11)
-
-
-    def addAttribute(self, name, typ, autoIncrement=False, isPrimaryKey=False, length=255):
-        attribute = SqlTableAttribute(name, typ, autoIncrement, isPrimaryKey, length)
-        self.attributes[name] = attribute
-
-
-    def addData(self, **keyWordArgs):
-        if not self.checkAttributes(keyWordArgs):
-            return False
-        for key in self.attributes.keys():
-            self.attributes[key].addValue(keyWordArgs[key])
-
-
-    def checkAttributes(self, keyWordArgs):
-        for key in keyWordArgs:
-            if not key in self.attributes.keys():
-                print 'Attribute "' + key + '" does not exists in table "' + self.name + '"!'
-                return False
-        for key in self.attributes.keys():
-            if not key in keyWordArgs.keys():
-                print 'Attribute "' + key + '" expected!'
-                return False
-        return True
-
-
-class SqlDatabase(object):
-    def __init__(self, name):
-        self.name = name
-        self.tables = {}
-
-
-    def addTable(self, name):
-        self.tables[name] = SqlTable(name)
-
-
-    def showDatabase(self):
-        database = {}
-        for table in self.tables.keys():
-            database[table] = {}
-            for attribute in self.tables[table].attributes.keys():
-                database[table][attribute] = self.tables[table].attributes[attribute].content
-        print json.dumps(database, indent=4)
-
-
-def readStructureAndCreateDatabase(fileName):
-    with open(fileName,'r') as f:
-        userGroup = json.load(f)
-        types = userGroup['types']
-        users = userGroup['users']
-        groups = userGroup['groups']
-    
-    db = SqlDatabase('CrashCom')
-
-    db.addTable('ObjektTyp')
-    db.tables['ObjektTyp'].addAttribute('Type', 'varchar')
-    for ID, typ in enumerate(types):
-        db.tables['ObjektTyp'].addData(ID=ID, Type=typ)
-
-    db.addTable('Gruppe')
-    db.tables['Gruppe'].addAttribute('Name', 'varchar')
-    for ID, group in enumerate(groups):
-        db.tables['Gruppe'].addData(ID=ID, Name=group)
-
-    db.addTable('Benutzer')
-    db.tables['Benutzer'].addAttribute('Name', 'varchar')
-    for ID, user in enumerate(users):
-        db.tables['Benutzer'].addData(ID=ID, Name=user)
-
-    return db
-
-
-class MySQLClient(object):
-    def __init__(self, address, port, user, password, databaseName):
+class MySQLConnection(object):
+    def __init__(self, address, port, username, password, databaseName):
         self.address = address
         self.port = makeIntOrUseDefault(port, 3306)
-        self.user = user
-        self.password = password
+        self.__username = username
+        self.__password = password
         self.databaseName = databaseName
+        self.__connection = self.connect(self.address,  self.port, self.__username, self.__password)
+        self.__tables = {}
+        self.history = []
 
-
-    def connect(self):
+    def connect(self, address, port, username, password):
         try:
-            self.connection = _mysql.connect(host=self.address, port=self.port, user=self.user, passwd=self.password)
-            self.createDatabase(self.databaseName)
+            conn = _mysql.connect(host=address, port=port, user=username, passwd=password)
+            return conn
         except _mysql.Error, error:
-            print error
-            errorCode = error[0]
-            self.byError(errorCode)
+            sqlErrorCode = error[0]
+            print self.translateSQLErrorCode(sqlErrorCode)
             sys.exit(1)
-
+        
+    def translateSQLErrorCode(self, sqlErrorCode):
+        sqlErrorCodes = {}
+        sqlErrorCodes[1045] = 'Access denied!'
+        sqlErrorCodes[2003] = 'Could not connect to sql server!'        
+        return sqlErrorCodes[sqlErrorCode]
 
     def createDatabase(self, databaseName):
-        self.sqlExecute('create database if not exists', databaseName)
+        return self.executeSQL('create database', databaseName)
+
+    def dropDatabase(self, databaseName):
+        return self.executeSQL('drop database', databaseName)
+
+    def useDatabase(self, databaseName):
+        return self.executeSQL('use', databaseName)
+
+    def createTable(self, **tableParameters):
+        try:
+            tableName = tableParameters['name']
+            attributes = tableParameters['attributes']
+            self.__tables[tableName] = {}
+        except KeyError:
+            return False
+        try:
+            foreignKeys = tableParameters['foreignKeys']
+        except KeyError:
+            foreignKeys = []
+        foreignKeyParts = []
+        attributeNames = []
+        for foreignKeyInfo in foreignKeys:
+            foreignKeyInfo = foreignKeyInfo.split()
+            foreignKeyName = '_'.join(foreignKeyInfo)
+            foreignKeyParts.append('foreign key(' + foreignKeyName + ') references ' + foreignKeyInfo[0] + '(' + foreignKeyInfo[1] + ')')
+        createTableCommand = []
+        createTableCommand.append('create table')
+        createTableCommand.append(tableName)
+        createTableCommand.append('(')
+        attributeCommandParts = []
+        for attribute in attributes:
+            attribute = attribute.split()
+            attributeName = attribute[0]
+            attributeNames.append(attributeName)
+            attributeType = attribute[1]
+            attributeLength = attribute[2]
+            attributeIsPrimaryKey = False
+            attributeAutoIncrement = False
+            if 'primaryKey' in attribute:
+                attributeIsPrimaryKey = True
+            if 'autoIncrement' in attribute:
+                attributeAutoIncrement = True
+            attributeCommandPart = attributeName + ' '
+            attributeCommandPart += attributeType + '(' + str(attributeLength) + ')'
+            if attributeAutoIncrement:
+                attributeCommandPart += ' auto_increment'
+            if attributeIsPrimaryKey:
+                attributeCommandPart += ' primary key'
+            attributeCommandParts.append(attributeCommandPart)
+        attributeCommandParts.extend(foreignKeyParts)
+        createTableCommand.append(', '.join(attributeCommandParts))
+        createTableCommand.append(')')
+        createTableCommand = ' '.join(createTableCommand)
+        self.__tables[tableName]['attributes'] = attributeNames
+        return self.executeSQL(createTableCommand)    
+
+    def dropTable(self, tableName):
+        return self.executeSQL('drop table', tableName)
+
+    def insertValues(self, **values):
+        tableName = values['tableName']
+        del values['tableName']
+        insertSQLCommandParts = []
+        insertSQLCommandParts.append('insert into')
+        insertSQLCommandParts.append(tableName)
+        insertSQLCommandParts.append('(')
+        insertSQLCommandParts.append(','.join(values.keys()))
+        insertSQLCommandParts.append(')')
+        insertSQLCommandParts.append('values')
+        insertSQLCommandParts.append('(')
+        newValues = []
+        for value in values.values():
+            newValues.append('"' + str(value) + '"')
+        insertSQLCommandParts.append(','.join(newValues))
+        insertSQLCommandParts.append(')')
+        command = ' '.join(insertSQLCommandParts)
+        return self.executeSQL(command)        
+
+    def executeSQL(self, *commandParts):
+        command = ' '.join(commandParts) + ';'
+        try:
+            self.__connection.query(command)
+            returnValue = True
+        except _mysql.Error:
+            returnValue = False
+        historyEntry = ' = '.join((str(command), str(returnValue)))
+        self.history.append(historyEntry)
+        self.__connection.query('commit')
+        return returnValue
+
+    def addOU(self, ouName, ldapPath=''):
+        self.insertValues(tableName='OrganisationsEinheit', Name=ouName, LDAPPfad=ldapPath)
+
+    def addGroup(self, groupName, OUID): 
+        self.insertValues(tableName='SicherheitsGruppe', Name=groupName, OrganisationsEinheit_OUID=OUID)
+        return True
+        
+    def addUser(self, userName, *groups):
+        newGroups = []
+        for groupID in groups:
+            newGroups.append(str(groupID))
+        newGroups = ','.join(newGroups)
+        self.insertValues(tableName='Benutzer', Name=userName, Gruppen=newGroups)
+
+    def __str__(self):
+        return json.dumps(self.history, indent=4)
 
 
-    def sqlExecute(self, *commandParts):
-        command = ' '.join(commandParts)
-        self.connection.query(command + ';')
+class LDAP(object):
+    def __init__(self):
+        pass
 
 
-    def byError(self, errorCode):
-        if errorCode == 0:
-            pass
-        elif errorCode == 1007:
-            print 'Creation Error! Database already exists!'
-        elif errorCode == 1045:
-            print 'Login failed!'
-        elif errorCode == 1049:
-            print 'Unknown Database'
-        elif errorCode == 1064:
-            print 'Syntax Error!'
 
 
-db = readStructureAndCreateDatabase('usergroup.json')
-db.showDatabase()
+con = MySQLConnection('localhost', 3306, 'root', '', 'CrashCom')
+con.dropDatabase('CrashCom')
+con.createDatabase('CrashCom')
+con.useDatabase('CrashCom')
 
-sql = MySQLClient('localhost', 3306, 'root', 'bbbbbb', 'CrashCom')
-sql.connect()
+con.createTable(name='OrganisationsEinheit', attributes=['OUID int 11 primaryKey autoIncrement', 'Name varchar 255', 'LDAPPfad varchar 255'])
+con.createTable(name='SicherheitsGruppe', attributes=['SGID int 11 primaryKey autoIncrement', 'Name varchar 255', 'OrganisationsEinheit_OUID int 11'], foreignKeys=['OrganisationsEinheit OUID'])
+con.createTable(name='Benutzer', attributes=['UID int 11 primaryKey autoIncrement', 'Name varchar 255', 'Gruppen varchar 255'])
+
+
+
+
+
+
+con.addOU('TestOU')
+
+
+
+con.addGroup('Geschaeftsfuehrung',1)
+con.addUser('Dietmar Renzen', 1)
+
+con.addGroup('Schulungsleitung',1)
+con.addUser('Peter Klug', 2)
+
+con.addGroup('Schulungspersonal',1)
+con.addUser('Dieter Gross', 3)
+con.addUser('Evelin Schmal', 3)
+con.addUser('Ottfried Kall', 3)
+con.addUser('Tom Schmaechtle', 3)
+con.addUser('Paul Starke', 3)
+
+con.addGroup('EDVleitung',1)
+con.addUser('Ernst Verse', 4)
+
+con.addGroup('EDVpersonal',1)
+con.addUser('Raimund Reim', 5)
+
+con.addUser('Dirk Nagel', 5)
+con.addUser('Erwin Schmitz', 5)
+
+con.addGroup('Verwaltung',1)
+con.addUser('Vera Stimmung', 6)
+
+con.addGroup('Rechnungswesen',1)
+con.addUser('Klara Sommer', 7)
+
+con.addGroup('Personal',1)
+con.addUser('Herrmann Winter', 8)
+
+con.addGroup('Hausdienst',1)
+con.addUser('Peter Fruehling', 9)
+
+con.addGroup('Marketing',1)
+con.addUser('Karmen Herbst', 10)
+
+con.addGroup('Einkauf',1)
+con.addUser('Werner Fassnacht', 11)
+
+con.addGroup('Sekretariatsleitung',1)
+con.addUser('Claudia Jahr', 12)
+
+con.addGroup('Sekretariatspersonal',1)
+con.addUser('Marlies Stunde', 13)
+
+
+
+print con
+
