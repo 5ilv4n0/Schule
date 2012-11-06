@@ -27,11 +27,11 @@
 
 import sys, os, json
 import win32com
+from pyad import pyad
+import MySQLdb as _mysql
 
-if os.name == 'nt':
-    import _mysql    
-else:
-    import MySQLdb as _mysql
+
+
 
 
 
@@ -41,7 +41,6 @@ def makeIntOrUseDefault(value, defaultValue=0):
         return value
     except ValueError:
         return defaultValue
-
 
 class MySQLConnection(object):
     def __init__(self, address, port, username, password, databaseName):
@@ -148,6 +147,9 @@ class MySQLConnection(object):
         command = ' '.join(insertSQLCommandParts)
         return self.executeSQL(command)        
 
+    def getTable(self, tableName):
+        return self.executeSQLAndReturn('select * from ' + tableName)
+
     def executeSQL(self, *commandParts):
         command = ' '.join(commandParts) + ';'
         try:
@@ -157,9 +159,21 @@ class MySQLConnection(object):
             returnValue = False
         historyEntry = ' = '.join((str(command), str(returnValue)))
         self.history.append(historyEntry)
-        self.__connection.query('commit')
+        self.__connection.commit()
         return returnValue
-
+       
+    def executeSQLAndReturn(self, *commandParts):
+        command = ' '.join(commandParts) + ';'
+        cursor = self.__connection.cursor()
+        try:
+            cursor.execute(command)
+            returnList = []
+            for entry in cursor:
+                returnList.append(entry)
+            return returnList
+        except _mysql.Error:
+            return False    
+ 
     def addOU(self, ouName, ldapPath=''):
         self.insertValues(tableName='OrganisationsEinheit', Name=ouName, LDAPPfad=ldapPath)
 
@@ -179,9 +193,53 @@ class MySQLConnection(object):
 
 
 class LDAP(object):
-    def __init__(self):
-        pass
+	def __init__(self, mySQLConnection):
+		self.mySQLConnection = mySQLConnection
+		
+	def addUser(self, firstName, lastName, securityGroup, mustChangePassword=True ,description='Ich bin ein Benutzer'):
+		ouRoot = pyad.adcontainer.ADContainer.from_dn("DC=IDEALTEC,DC=ORG")
+		try:
+			ouRoot.create_container('Benutzer')
+			ouUsers = pyad.adcontainer.ADContainer.from_dn("OU=Benutzer,DC=IDEALTEC,DC=ORG")
+		except:
+			return False
+		
+	def addUsersFromSQL(self):
+		for userID, userName, securityGroupID in con.getTable('Benutzer'):
+			principalName = self.makeUserPrincipalName(userName)
+			#print userName, int(securityGroupID), self.makeSAMAccountName(userName), self.displayName(userName)
+			nameSplits = self.splitNames(userName)			
+			exAttr = {}
+			exAttr['givenName'] = nameSplits[0]
+			exAttr['sn'] = nameSplits[1]			
+			exAttr['initials'] = nameSplits[0][0] + nameSplits[1][0]
+			exAttr['displayName'] = self.displayName(userName)
+			exAttr['samAccountName'] = self.makeSAMAccountName(userName)
+			#exAttr['nTSecurityDescriptor'] = True
+			
+			exAttr['description'] = exAttr['displayName'] + ' ist ein Benutzer.'		
 
+			
+			user = pyad.aduser.ADUser.create(principalName, ouUsers, password='Changeme123', upn_suffix=None, enable=True, optional_attributes=exAttr)
+
+		
+
+	def makeUserPrincipalName(self, name):
+		name = self.splitNames(name)
+		return '.'.join(name)
+		
+	def makeSAMAccountName(self, name):
+		name = self.splitNames(name)
+		samName = name[0][0] + name[1][:18]
+		return samName
+		
+	def displayName(self, name):
+		name = self.splitNames(name)
+		return name[1] + ', ' + name[0]
+
+		
+	def splitNames(self, name):
+		return name.split()
 
 
 
@@ -189,21 +247,21 @@ con = MySQLConnection('localhost', 3306, 'root', '', 'CrashCom')
 con.dropDatabase('CrashCom')
 con.createDatabase('CrashCom')
 con.useDatabase('CrashCom')
-
 con.createTable(name='OrganisationsEinheit', attributes=['OUID int 11 primaryKey autoIncrement', 'Name varchar 255', 'LDAPPfad varchar 255'])
 con.createTable(name='SicherheitsGruppe', attributes=['SGID int 11 primaryKey autoIncrement', 'Name varchar 255', 'OrganisationsEinheit_OUID int 11'], foreignKeys=['OrganisationsEinheit OUID'])
 con.createTable(name='Benutzer', attributes=['UID int 11 primaryKey autoIncrement', 'Name varchar 255', 'Gruppen varchar 255'])
-
-
-
-
-
-
 con.addOU('TestOU')
 
+ouRoot = pyad.adcontainer.ADContainer.from_dn("DC=IDEALTEC,DC=ORG")
+try:
+	ouRoot.create_container('Benutzer')
+except:
+	pass
+	
+ouUsers = pyad.adcontainer.ADContainer.from_dn("OU=Benutzer,DC=IDEALTEC,DC=ORG")
+print ouUsers
 
-
-con.addGroup('Geschaeftsfuehrung',1)
+con.addGroup('Geschaetsfuehrung',1)
 con.addUser('Dietmar Renzen', 1)
 
 con.addGroup('Schulungsleitung',1)
@@ -251,5 +309,7 @@ con.addUser('Marlies Stunde', 13)
 
 
 
-print con
+
+ldap = LDAP(con)
+ldap.addUsersFromSQL()
 
