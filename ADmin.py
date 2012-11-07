@@ -22,18 +22,11 @@
 #  
 #  AdminPassword = 'Bbbbbb6'
 
-#con.createTable(name='Benutzer', attributes=['UID int 11 primaryKey autoIncrement', 'Name varchar 255', 'Gruppe_GID int 11'], foreignKeys=['Gruppe GID'])
-
 
 import sys, os, json
 import win32com
 from pyad import pyad
 import MySQLdb as _mysql
-
-
-
-
-
 
 def makeIntOrUseDefault(value, defaultValue=0):
     try:
@@ -172,25 +165,24 @@ class MySQLConnection(object):
                 returnList.append(entry)
             return returnList
         except _mysql.Error:
-            return False    
+            return False	
  
-    def addOU(self, ouName, ldapPath=''):
-        self.insertValues(tableName='OrganisationsEinheit', Name=ouName, LDAPPfad=ldapPath)
+    def addOU(self, ouName, parent=''):
+        self.insertValues(tableName='OrganisationsEinheit', Name=ouName, parent=parent)
 
     def addGroup(self, groupName, OUID): 
         self.insertValues(tableName='SicherheitsGruppe', Name=groupName, OrganisationsEinheit_OUID=OUID)
         return True
         
-    def addUser(self, userName, *groups):
-        newGroups = []
-        for groupID in groups:
-            newGroups.append(str(groupID))
-        newGroups = ','.join(newGroups)
-        self.insertValues(tableName='Benutzer', Name=userName, Gruppen=newGroups)
+    def addUser(self, givenName, sn, displayName, description='', userPrincipalName='', samAccountName='', pwdLastSet='bbbbbb', profilePath='', homeDrive='', homeDirectory='', *MemberOF):
+        newMemberOF = []
+        for MemberOFID in MemberOF:
+            newMemberOF.append(str(MemberOFID))
+        newMemberOF = ','.join(newMemberOF)
+        self.insertValues(tableName='Benutzer', givenName=givenName, sn=sn, displayName=displayName, description=description, userPrincipalName=userPrincipalName, samAccountName=samAccountName, pwdLastSet=pwdLastSet, profilePath=profilePath, homeDrive=homeDrive, homeDirectory=homeDirectory, MemberOF=newMemberOF)
 
     def __str__(self):
         return json.dumps(self.history, indent=4)
-
 
 class LDAP(object):
 	def __init__(self, mySQLConnection):
@@ -205,109 +197,97 @@ class LDAP(object):
 			return False
 		
 	def addUsersFromSQL(self):
-		for userID, userName, securityGroupID in con.getTable('Benutzer'):
-			principalName = self.makeUserPrincipalName(userName)
-			#print userName, int(securityGroupID), self.makeSAMAccountName(userName), self.displayName(userName)
-			nameSplits = self.splitNames(userName)			
+		ouUsers = pyad.adcontainer.ADContainer.from_dn("OU=Benutzer,DC=IDEALTEC,DC=ORG")
+		for UID, givenName, sn, displayName, description, userPrincipalName, samAccountName, pwdLastSet, profilePath ,homeDrive, homeDirectory, MemberOF in self.mySQLConnection.getTable('Benutzer'):
+			print givenName, sn, displayName, description, userPrincipalName, samAccountName, pwdLastSet, profilePath ,homeDrive, homeDirectory, MemberOF
+			principalName = userPrincipalName		
 			exAttr = {}
-			exAttr['givenName'] = nameSplits[0]
-			exAttr['sn'] = nameSplits[1]			
-			exAttr['initials'] = nameSplits[0][0] + nameSplits[1][0]
-			exAttr['displayName'] = self.displayName(userName)
-			exAttr['samAccountName'] = self.makeSAMAccountName(userName)
+			exAttr['givenName'] = givenName
+			exAttr['sn'] = sn			
+			exAttr['initials'] = givenName[0] + sn[0]
+			exAttr['displayName'] = displayName
+			exAttr['samAccountName'] = samAccountName
 			#exAttr['nTSecurityDescriptor'] = True
-			
-			exAttr['description'] = exAttr['displayName'] + ' ist ein Benutzer.'		
+			exAttr['description'] = description		
 
-			
 			user = pyad.aduser.ADUser.create(principalName, ouUsers, password='Changeme123', upn_suffix=None, enable=True, optional_attributes=exAttr)
 
 		
-
-	def makeUserPrincipalName(self, name):
-		name = self.splitNames(name)
-		return '.'.join(name)
-		
-	def makeSAMAccountName(self, name):
-		name = self.splitNames(name)
-		samName = name[0][0] + name[1][:18]
-		return samName
-		
-	def displayName(self, name):
-		name = self.splitNames(name)
-		return name[1] + ', ' + name[0]
-
-		
-	def splitNames(self, name):
-		return name.split()
-
-
 
 con = MySQLConnection('localhost', 3306, 'root', '', 'CrashCom')
 con.dropDatabase('CrashCom')
 con.createDatabase('CrashCom')
 con.useDatabase('CrashCom')
-con.createTable(name='OrganisationsEinheit', attributes=['OUID int 11 primaryKey autoIncrement', 'Name varchar 255', 'LDAPPfad varchar 255'])
-con.createTable(name='SicherheitsGruppe', attributes=['SGID int 11 primaryKey autoIncrement', 'Name varchar 255', 'OrganisationsEinheit_OUID int 11'], foreignKeys=['OrganisationsEinheit OUID'])
-con.createTable(name='Benutzer', attributes=['UID int 11 primaryKey autoIncrement', 'Name varchar 255', 'Gruppen varchar 255'])
-con.addOU('TestOU')
+
+con.createTable(name='OrganisationsEinheit', attributes=['OUID int 11 primaryKey autoIncrement', 'Name varchar 255', 'parent varchar 255'])
+con.createTable(name='Benutzer', attributes=['UID int 11 primaryKey autoIncrement', 'givenName varchar 255','sn varchar 255','displayName varchar 255','description varchar 255','userPrincipalName varchar 255','samAccountName varchar 255','pwdLastSet varchar 255','profilePath varchar 255','homeDrive varchar 255','homeDirectory varchar 255','MemberOF varchar 255'])
+
+con.addOU('Gruppenstruktur')
+con.addOU('Geschaeftsfuehrung','Gruppenstruktur')
+con.addOU('Schulungsleitung','Gruppenstruktur')
+con.addOU('Schulungspersonal','Gruppenstruktur')
+con.addOU('EDVleitung','Gruppenstruktur')
+con.addOU('EDVpersonal','Gruppenstruktur')
+con.addOU('Verwaltung','Gruppenstruktur')
+con.addOU('Rechnungswesen','Gruppenstruktur')
+con.addOU('Personal','Gruppenstruktur')
+con.addOU('Einkauf','Gruppenstruktur')
+con.addOU('Hausdienst','Gruppenstruktur')
+con.addOU('Marketing','Gruppenstruktur')
+con.addOU('Sekretariatsleitung','Gruppenstruktur')
+con.addOU('Sekretariatspersonal','Gruppenstruktur')
+
+con.addUser('Dietmar', 'Renzen', 'Dietmar Renzen')
+con.addUser('Peter', 'Klug', 'Peter Klug')
+con.addUser('Dieter', 'Gross', 'Dieter Gross')
+con.addUser('Evelin', 'Schmal', 'Evelin Schmal')
+con.addUser('Ottfried', 'Kall', 'Ottfried Kall')
+con.addUser('Schmaechtle', 'Tom', 'Schmaechtle Tom')
+con.addUser('Starke', 'Paul', 'Starke Paul')
+con.addUser('Verse', 'Ernst', 'Verse Ernst')
+con.addUser('Raimund','Reim','Raimund Reim')
+con.addUser('Dirk','Nagel','Dirk Nagel')
+con.addUser('Erwin','Schmitz','Erwin Schmitz')
+con.addUser('Vera','Stimmung','Vera Stimmung')
+con.addUser('Klara','Sommer','Klara Sommer')
+con.addUser('Herrmann','Winter','Herrmann Winter')
+con.addUser('Peter','Fruehling','Peter Fruehling')
+con.addUser('Karmen','Herbst','Karmen Herbst')
+con.addUser('Werner','Fassnacht','Werner Fassnacht')
+con.addUser('Claudia','Jahr','Claudia Jahr')
+con.addUser('Marlies','Stunde','Marlies Stunde')
+
+
+print len(con.getTable('Benutzer')[0])
+
 
 ouRoot = pyad.adcontainer.ADContainer.from_dn("DC=IDEALTEC,DC=ORG")
 try:
-	ouRoot.create_container('Benutzer')
+	ouRoot.create_container('Gruppenstruktur')
 except:
 	pass
 	
+ous = con.getTable('OrganisationsEinheit')
+for ouEntry in ous:
+	print ouEntry
+	ou = ouEntry[1]
+	parent = ouEntry[2]
+	if parent == '':
+		try:
+			ouRoot.create_container(ou)
+		except:
+			pass
+	else:
+		ouGroupStructure = pyad.adcontainer.ADContainer.from_dn("OU=Gruppenstruktur,DC=IDEALTEC,DC=ORG")
+		try:
+			ouGroupStructure.create_container(ou)
+		except:
+			pass
+
+
+		
 ouUsers = pyad.adcontainer.ADContainer.from_dn("OU=Benutzer,DC=IDEALTEC,DC=ORG")
-print ouUsers
-
-con.addGroup('Geschaetsfuehrung',1)
-con.addUser('Dietmar Renzen', 1)
-
-con.addGroup('Schulungsleitung',1)
-con.addUser('Peter Klug', 2)
-
-con.addGroup('Schulungspersonal',1)
-con.addUser('Dieter Gross', 3)
-con.addUser('Evelin Schmal', 3)
-con.addUser('Ottfried Kall', 3)
-con.addUser('Tom Schmaechtle', 3)
-con.addUser('Paul Starke', 3)
-
-con.addGroup('EDVleitung',1)
-con.addUser('Ernst Verse', 4)
-
-con.addGroup('EDVpersonal',1)
-con.addUser('Raimund Reim', 5)
-
-con.addUser('Dirk Nagel', 5)
-con.addUser('Erwin Schmitz', 5)
-
-con.addGroup('Verwaltung',1)
-con.addUser('Vera Stimmung', 6)
-
-con.addGroup('Rechnungswesen',1)
-con.addUser('Klara Sommer', 7)
-
-con.addGroup('Personal',1)
-con.addUser('Herrmann Winter', 8)
-
-con.addGroup('Hausdienst',1)
-con.addUser('Peter Fruehling', 9)
-
-con.addGroup('Marketing',1)
-con.addUser('Karmen Herbst', 10)
-
-con.addGroup('Einkauf',1)
-con.addUser('Werner Fassnacht', 11)
-
-con.addGroup('Sekretariatsleitung',1)
-con.addUser('Claudia Jahr', 12)
-
-con.addGroup('Sekretariatspersonal',1)
-con.addUser('Marlies Stunde', 13)
-
-
+#print ouUsers
 
 
 ldap = LDAP(con)
