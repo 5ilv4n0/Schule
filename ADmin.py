@@ -230,6 +230,12 @@ class MySQLConnection(object):
         return json.dumps(self.history, indent=4)
 
 
+    def getUserOfGroup(self, groupName):
+		users = []
+		for user in self.executeSQLAndReturn("select * from Benutzer where MemberOF = '3' or MemberOF = '4'"):
+			users.append(user[5])
+		return users
+
 class LDAP(object):
 	def __init__(self, domainName, mySQLConnection):
 		self.mySQLConnection = mySQLConnection
@@ -254,6 +260,18 @@ class LDAP(object):
 		return groupUsers
 
 
+	def generateShareDirectories(self):
+		groupUsers = self.getUserGroupStructure()
+		for group in groupUsers.keys():
+			try:
+				os.makedirs('H:\\idealtec\\home\\Tausch\\'+group)
+			except:
+				pass
+				
+			userPrincipalNames = groupUsers[group]
+			for userPrincipalName in userPrincipalNames:
+				icaclsCommand = 'icacls ' + 'H:\\idealtec\\home\\Tausch\\' + group + ' /T /grant:r ' + userPrincipalName + ':(OI)(CI)F'
+				os.popen(icaclsCommand).read()		
 
 
 	def addUser(self, firstName, lastName, securityGroup, mustChangePassword=True ,description='Ich bin ein Benutzer'):
@@ -264,8 +282,6 @@ class LDAP(object):
 		ouUsers = pyad.adcontainer.ADContainer.from_dn('OU=Benutzer,' + self.ldapRoot)
 		user = pyad.aduser.ADUser.create('test', ouUsers, password='Changeme123', upn_suffix=None, enable=True, optional_attributes={})
 
-
-			
 	def addUsersFromSQL(self):
 		try:
 			self.ouRoot.create_container('Benutzer')
@@ -273,7 +289,12 @@ class LDAP(object):
 			pass	
 		finally:	
 			ouUsers = pyad.adcontainer.ADContainer.from_dn('OU=Benutzer,' + self.ldapRoot)
-			
+	
+		try:
+			os.makedirs('H:\\idealtec\\home\\Global')
+		except:
+			pass
+		
 		for UID, givenName, sn, displayName, description, userPrincipalName, samAccountName, pwdLastSet, profilePath ,homeDrive, homeDirectory, MemberOF in self.mySQLConnection.getTable('Benutzer'):
 				
 			exAttr = {}
@@ -310,15 +331,50 @@ class LDAP(object):
 			except:
 				pass
 				
-			
-			
 			icaclsCommand = 'icacls ' + 'H:\\idealtec\\home\\' + userPrincipalName + ' /T /grant:r ' + userPrincipalName + ':(OI)(CI)F'   
 			icaclsMakeOwnerCommand = 'icacls ' + 'H:\\idealtec\\home\\' + userPrincipalName + ' /T /setowner ' + userPrincipalName
+			icaclsGlobalCommand = 'icacls ' + 'H:\\idealtec\\home\\Global /T /grant:r ' + userPrincipalName + ':(OI)(CI)RX'
 			os.popen(icaclsCommand).read()
 			os.popen(icaclsMakeOwnerCommand).read()
-
+			os.popen(icaclsGlobalCommand).read()
 			
+			
+			
+		schulungsLeiter =  self.mySQLConnection.getUserOfGroup('')
+		
+		for room in xrange(0,2):
+			room += 1 	
+			
+			try:
+				os.makedirs('H:\\idealtec\\home\\' + 'Schulungsraum'+str(room))
+			except:
+				pass
 				
+			try:
+				os.makedirs('H:\\idealtec\\home\\' + 'Schulungen')
+			except:
+				pass
+			
+			for user in self.getUserNamesOfRoom(room):
+				print '########->>>>>',user
+				for userL in schulungsLeiter:
+					icaclsHomesCommand = 'icacls ' + 'H:\\idealtec\\home\\' + user + ' /T /grant:r ' + userL + ':(OI)(CI)F' 
+					os.popen(icaclsHomesCommand)
+				icaclsCommand = 'icacls ' + 'H:\\idealtec\\home\\' + 'Schulungsraum'+str(room) + ' /T /grant:r ' + user + ':(OI)(CI)RX' 	
+				os.popen(icaclsCommand).read()
+							
+
+			for user in schulungsLeiter:
+				icaclsFolderCommand = 'icacls ' + 'H:\\idealtec\\home\\' + 'Schulungen /T /grant:r ' + user + ':(OI)(CI)F'
+				icaclsCommand = 'icacls ' + 'H:\\idealtec\\home\\' + 'Schulungsraum'+str(room) + ' /T /grant:r ' + user + ':(OI)(CI)F' 	
+				os.popen(icaclsFolderCommand).read()
+				os.popen(icaclsCommand).read()
+				
+				
+				####################################				
+		
+		 
+			                             	
 	def createOU(self, LDAPObject, name):
 		try:
 			LDAPObject.create_container(name)
@@ -345,15 +401,8 @@ class LDAP(object):
 		for user in usersOfGroup:
 			user = pyad.adobject.ADObject.from_dn('CN=' + user + ',OU=Benutzer,' + self.ldapRoot)
 			userObjects.append(user)
-		group.add_members(userObjects)
-			
-			
-			
-			
-			
-			
-			
-			
+		if not group == False:
+			group.add_members(userObjects)
 			
 	def createGroupStructure(self):
 		self.createOU(self.ouRoot, 'Gruppenstruktur')
@@ -367,8 +416,19 @@ class LDAP(object):
 				self.createOUAndGroup(ouGroupStructure, ou)		
 
 
+	def getUserNamesOfRoom(self, roomNumber):
+		users = []
+		for UID, givenName, sn, displayName, description, userPrincipalName, samAccountName, pwdLastSet, profilePath ,homeDrive, homeDirectory, MemberOF in self.mySQLConnection.getTable('Benutzer'):
+			if userPrincipalName[1] == str(roomNumber):
+				users.append(userPrincipalName)
+		return users
 
-con = MySQLConnection('localhost', 3306, 'root', '', domainName)
+
+
+
+
+con =  MySQLConnection('localhost', 3306, 'root', '', domainName)
+print con
 if 'renewdb' in sys.argv:
 	print 'renew the database...',
 	con.dropDatabase(databaseName)
@@ -438,15 +498,15 @@ if 'renewdb' in sys.argv:
 else:
 	con.useDatabase(databaseName)
 
-
-
+print con.getUserOfGroup('')
 		
 #ouUsers = pyad.adcontainer.ADContainer.from_dn("OU=Benutzer,DC=IDEALTEC,DC=ORG")
 
-
-
+#~ 
+#~ 
 ldap = LDAP(domainName, con)
 ldap.createGroupStructure()
 ldap.addUsersFromSQL()
+ldap.generateShareDirectories()
 
 
