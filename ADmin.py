@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python -W ignore::DeprecationWarning
 # -*- coding: utf-8 -*-
 #
 #  project.py
@@ -20,15 +20,12 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #  
-#  AdminPassword = 'Bbbbbb6'
 
 import sys, os, json, re
-import win32com
 from pyad import pyad
 import MySQLdb as _mysql
 
 global ADHostName, domainName, domain, ldapRoot
-
 domainName = 'idealtec.org'
 ADHostName = 'WIN-GMP1KUTS11M'
 domain = domainName.upper().split('.')
@@ -50,8 +47,12 @@ def makeIntOrUseDefault(value, defaultValue=0):
     except ValueError:
         return defaultValue
 
+
+
+
 class MySQLConnection(object):
     global ADHostName
+
     def __init__(self, address, port, username, password, databaseName):
         self.address = address
         self.port = makeIntOrUseDefault(port, 3306)
@@ -62,21 +63,17 @@ class MySQLConnection(object):
         self.__tables = {}
         self.history = []
 
+
     def connect(self, address, port, username, password):
         try:
             conn = _mysql.connect(host=address, port=port, user=username, passwd=password)
             return conn
         except _mysql.Error, error:
-            sqlErrorCode = error[0]
-            print self.translateSQLErrorCode(sqlErrorCode)
+            for e in error:
+				print e
             sys.exit(1)
-        
-    def translateSQLErrorCode(self, sqlErrorCode):
-        sqlErrorCodes = {}
-        sqlErrorCodes[1045] = 'Access denied!'
-        sqlErrorCodes[2003] = 'Could not connect to sql server!'        
-        return sqlErrorCodes[sqlErrorCode]
-
+            
+       
     def createDatabase(self, databaseName):
         return self.executeSQL('create database', databaseName)
 
@@ -86,19 +83,17 @@ class MySQLConnection(object):
     def useDatabase(self, databaseName):
         return self.executeSQL('use', databaseName)
 
+
+
+
     def createTable(self, **tableParameters):
-        try:
-            tableName = tableParameters['name']
-            attributes = tableParameters['attributes']
-            self.__tables[tableName] = {}
-        except KeyError:
-            return False
-        try:
-            foreignKeys = tableParameters['foreignKeys']
-        except KeyError:
-            foreignKeys = []
+        tableName, attributes = self.getTableNameAndAttributesOrExit(tableParameters)
+        foreignKeys = self.readForeignKeys(tableParameters)
+        tableName = self.getTableNameOrExit(tableParameters)
         foreignKeyParts = []
-        attributeNames = []
+        attributeNames = []        
+        
+        
         for foreignKeyInfo in foreignKeys:
             foreignKeyInfo = foreignKeyInfo.split()
             foreignKeyName = '_'.join(foreignKeyInfo)
@@ -141,6 +136,45 @@ class MySQLConnection(object):
         self.__tables[tableName]['attributes'] = attributeNames
         return self.executeSQL(createTableCommand)    
 
+
+    def readForeignKeys(self, tableParameters):
+        try:
+            foreignKeys = tableParameters['foreignKeys']
+            return foreignKeys
+        except KeyError:
+            return []		
+
+    def getTableNameAndAttributesOrExit(self, tableParameters):
+        try:
+            tableName = tableParameters['name']
+            attributes = tableParameters['attributes']
+            self.__tables[tableName] = {}
+            return tableName, attributes
+        except KeyError:
+			print 'Value not found! exit.'
+			sys.exit(1)
+
+
+    def executeSQL(self, *commandParts):
+        command = ' '.join(commandParts) + ';'
+        try:
+            self.__connection.query(command)
+            returnValue = True
+        except _mysql.Error:
+            returnValue = False
+        self.wirteHistory(command)
+        self.__connection.commit()
+        return returnValue
+       
+
+    def wirteHistory(self, command):
+        self.history.append(command)
+
+
+
+
+
+
     def dropTable(self, tableName):
         return self.executeSQL('drop table', tableName)
 
@@ -166,18 +200,7 @@ class MySQLConnection(object):
     def getTable(self, tableName):
         return self.executeSQLAndReturn('select * from ' + tableName)
 
-    def executeSQL(self, *commandParts):
-        command = ' '.join(commandParts) + ';'
-        try:
-            self.__connection.query(command)
-            returnValue = True
-        except _mysql.Error:
-            returnValue = False
-        historyEntry = ' = '.join((str(command), str(returnValue)))
-        self.history.append(historyEntry)
-        self.__connection.commit()
-        return returnValue
-       
+
     def executeSQLAndReturn(self, *commandParts):
         command = ' '.join(commandParts) + ';'
         cursor = self.__connection.cursor()
@@ -229,12 +252,13 @@ class MySQLConnection(object):
     def __str__(self):
         return json.dumps(self.history, indent=4)
 
-
     def getUserOfGroup(self, groupName):
 		users = []
 		for user in self.executeSQLAndReturn("select * from Benutzer where MemberOF = '3' or MemberOF = '4'"):
 			users.append(user[5])
 		return users
+
+
 
 class LDAP(object):
 	def __init__(self, domainName, mySQLConnection):
@@ -259,7 +283,6 @@ class LDAP(object):
 				groupUsers[ouIDs[int(memberOfGroup)]].append(userPrincipalName)
 		return groupUsers
 
-
 	def generateShareDirectories(self):
 		groupUsers = self.getUserGroupStructure()
 		for group in groupUsers.keys():
@@ -272,7 +295,6 @@ class LDAP(object):
 			for userPrincipalName in userPrincipalNames:
 				icaclsCommand = 'icacls ' + 'H:\\idealtec\\home\\Tausch\\' + group + ' /T /grant:r ' + userPrincipalName + ':(OI)(CI)F'
 				os.popen(icaclsCommand).read()		
-
 
 	def addUser(self, firstName, lastName, securityGroup, mustChangePassword=True ,description='Ich bin ein Benutzer'):
 		try:
@@ -316,10 +338,11 @@ class LDAP(object):
 				pass
 			reFilter = re.match(r'(.\d+-.\d+)',userPrincipalName)
 			if reFilter == None:
-				try:
-					os.makedirs('H:\\idealtec\\profiles\\' + userPrincipalName)
-				except:
-					pass
+				pass
+				#~ try:
+					#~ os.makedirs('H:\\idealtec\\profiles\\' + userPrincipalName)
+				#~ except:
+					#~ pass
 				
 			else:
 				try:
@@ -369,12 +392,7 @@ class LDAP(object):
 				icaclsCommand = 'icacls ' + 'H:\\idealtec\\home\\' + 'Schulungsraum'+str(room) + ' /T /grant:r ' + user + ':(OI)(CI)F' 	
 				os.popen(icaclsFolderCommand).read()
 				os.popen(icaclsCommand).read()
-				
-				
-				####################################				
-		
-		 
-			                             	
+				                      	
 	def createOU(self, LDAPObject, name):
 		try:
 			LDAPObject.create_container(name)
@@ -395,7 +413,7 @@ class LDAP(object):
 			pass
 
 		userGroupStructure = self.getUserGroupStructure()
-		#group = pyad.adcontainer.ADContainer.from_dn('OU=' + name + ',OU=Gruppenstruktur,' + self.ldapRoot)
+		group = pyad.adcontainer.ADContainer.from_dn('OU=' + name + ',OU=Gruppenstruktur,' + self.ldapRoot)
 		usersOfGroup = userGroupStructure[name]
 		userObjects = []
 		for user in usersOfGroup:
@@ -414,7 +432,6 @@ class LDAP(object):
 				self.createOU(self.ouRoot, ou)
 			else:
 				self.createOUAndGroup(ouGroupStructure, ou)		
-
 
 	def getUserNamesOfRoom(self, roomNumber):
 		users = []
@@ -498,15 +515,15 @@ if 'renewdb' in sys.argv:
 else:
 	con.useDatabase(databaseName)
 
-print con.getUserOfGroup('')
+
 		
 #ouUsers = pyad.adcontainer.ADContainer.from_dn("OU=Benutzer,DC=IDEALTEC,DC=ORG")
 
-#~ 
-#~ 
+
 ldap = LDAP(domainName, con)
-ldap.createGroupStructure()
 ldap.addUsersFromSQL()
+ldap.createGroupStructure()
+
 ldap.generateShareDirectories()
 
 
