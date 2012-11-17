@@ -1,0 +1,134 @@
+{
+    "users": {
+        "Ernst Verse": {
+            "description": "EDV", 
+            "groups": [
+                "EDVleitung"
+            ]
+        }, 
+        "Evelyn Schmal": {
+            "description": "Office-Anwendung", 
+            "groups": [
+                "Schulungspersonal"
+            ]
+        }, 
+        "Tom schmaechtle": {
+            "description": "Programmierung", 
+            "groups": [
+                "Schulungspersonal"
+            ]
+        }, 
+        "Clara Sommer": {
+            "description": "Rechnungswesen", 
+            "groups": [
+                "Rechnungswesen"
+            ]
+        }, 
+        "Carmen Herbst": {
+            "description": "Marketing", 
+            "groups": [
+                "Marketing"
+            ]
+        }, 
+        "Claudia Jahr": {
+            "description": "Sekretariatsleitung", 
+            "groups": [
+                "Sekretariatsleitung"
+            ]
+        }, 
+        "Raimund Reim": {
+            "description": "EDV-Personal", 
+            "groups": [
+                "EDVpersonal"
+            ]
+        }, 
+        "Peter Fruehling": {
+            "description": "Hausdienste", 
+            "groups": [
+                "Hausdienst"
+            ]
+        }, 
+        "Marlies Stunde": {
+            "description": "Sekretariatspersonal", 
+            "groups": [
+                "Sekretariatspersonal"
+            ]
+        }, 
+        "Dirk Nagel": {
+            "description": "EDV-Personal", 
+            "groups": [
+                "EDVpersonal"
+            ]
+        }, 
+        "Paul Starke": {
+            "description": "Fuehrungstraining", 
+            "groups": [
+                "Schulungspersonal"
+            ]
+        }, 
+        "Dietmar Renzen": {
+            "description": "CEO", 
+            "groups": [
+                "Geschaeftsfuehrung"
+            ]
+        }, 
+        "Dieter Gross": {
+            "description": "PC-Technik", 
+            "groups": [
+                "Schulungspersonal"
+            ]
+        }, 
+        "Ottfried Kall": {
+            "description": "Grafik", 
+            "groups": [
+                "Schulungspersonal"
+            ]
+        }, 
+        "Vera Stimmung": {
+            "description": "Verwaltungsleitung", 
+            "groups": [
+                "Verwaltung"
+            ]
+        }, 
+        "Erwin Schmitz": {
+            "description": "EDV-Personal", 
+            "groups": [
+                "EDVpersonal"
+            ]
+        }, 
+        "Herrmann Winter": {
+            "description": "Personal", 
+            "groups": [
+                "Personal"
+            ]
+        }, 
+        "Peter Klug": {
+            "description": "Schulungsleiter", 
+            "groups": [
+                "Schulungsleitung"
+            ]
+        }, 
+        "Werner Fassnacht": {
+            "description": "Einkauf", 
+            "groups": [
+                "Einkauf"
+            ]
+        }
+    }, 
+    "groups": [
+        "Geschaeftsfuehrung", 
+        "Schulungsleitung", 
+        "Schulungspersonal", 
+        "Schulungsteilnehmer", 
+        "EDVleitung", 
+        "EDVpersonal", 
+        "Verwaltung", 
+        "Rechnungswesen", 
+        "Personal", 
+        "Einkauf", 
+        "Hausdienst", 
+        "Marketing", 
+        "Sekretariatsleitung", 
+        "Sekretariatspersonal"
+    ]
+}
