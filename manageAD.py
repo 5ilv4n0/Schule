@@ -27,6 +27,7 @@ from pyad import pyad
 import UserGroup
 
 
+
 def joinToString(strings, seperator=' '):
     return seperator.join(strings)
 
@@ -65,6 +66,12 @@ class LDAPAdministration(object):
         self.localHomesPath         = os.path.join(self.homeAndProfileRootPath, 'homes') 
         self.userObjects            = {}
         self.groupObjects           = {}
+        self.ldapPathOfGroupStructureOUObject       = self.createOrganisationUnitInRootIfNotExists('Gruppenstruktur')
+        self.ldapPathOfUsersOUObject                = self.createOrganisationUnitInRootIfNotExists('Benutzer')
+        self.groupStructureOUObject                 = self.callOrganisationUnit(self.ldapPathOfGroupStructureOUObject)
+        self.usersOUObject                          = self.callOrganisationUnit(self.ldapPathOfUsersOUObject)
+        self.createGroupsFromDatabase()
+
         
         
     def readConfigOrGetInput(self):
@@ -156,12 +163,14 @@ class LDAPAdministration(object):
 
     def generateStructure(self):
         self.createDirectoryStructure()
-        
+
         self.ldapPathOfGroupStructureOUObject       = self.createOrganisationUnitInRootIfNotExists('Gruppenstruktur')
         self.ldapPathOfUsersOUObject                = self.createOrganisationUnitInRootIfNotExists('Benutzer')
         self.groupStructureOUObject                 = self.callOrganisationUnit(self.ldapPathOfGroupStructureOUObject)
         self.usersOUObject                          = self.callOrganisationUnit(self.ldapPathOfUsersOUObject)
         
+        self.deleteAllUsers()       
+
         self.deleteGroupStructure()
         self.createGroupsFromDatabase()
         self.createUsersFromDatabase()
@@ -176,7 +185,6 @@ class LDAPAdministration(object):
         for classRoomID in xrange(0, self.config['numberOfClassRooms']):
             directoryPath = os.path.join(self.localHomesPath, 'schulungsraum'+str(classRoomID).rjust(classRoomLength,'0'))
             self.createDirectory(directoryPath)
-
 
     def createOrganisationUnitInRootIfNotExists(self, ouName):
         ldapPath = ''.join(('OU=', ouName, ',', self.ldapRootPath))
@@ -201,14 +209,17 @@ class LDAPAdministration(object):
     def callOrganisationUnit(self, ldapPath):
         return pyad.adcontainer.ADContainer.from_dn(ldapPath)
 
-
     def createGroupsFromDatabase(self):
         for groupName in self.usersAndGroups['groups']:
-            self.createOrganisationUnit(self.groupStructureOUObject, groupName)
-            groupOUPath = ''.join(('OU=',groupName,',',self.ldapPathOfGroupStructureOUObject))
-            groupOU = self.callOrganisationUnit(groupOUPath)
-            self.createGroup(groupOU, groupName)
-
+            try:
+                self.createOrganisationUnit(self.groupStructureOUObject, groupName)
+	            groupOUPath = ''.join(('OU=',groupName,',',self.ldapPathOfGroupStructureOUObject))
+	            groupOU = self.callOrganisationUnit(groupOUPath)
+	            self.createGroup(groupOU, groupName)
+            except:
+	            pass
+				
+				
     def deleteGroupStructure(self):
         try:
             for ou in self.callOrganisationUnit(self.ldapPathOfGroupStructureOUObject).get_children():
@@ -218,14 +229,41 @@ class LDAPAdministration(object):
         except:
             pass
 
+
+    def deleteAllUsers(self):
+        try:
+            for user in self.usersOUObject.get_children():
+                user.delete()
+        except:
+            pass
+  
+
+    def resetUser(self, principalName):
+        self.resetUserPassword(principalName)
+        self.deleteHomeDirectory(principalName)
+        self.createHomeDirectory(principalName)
+
+    def resetUserPassword(self, principalName):
+        os.system('net user '+principalName+' '+self.config['defaultPassword'])
+        
+
+    def deleteUser(self, principalName):
+        try:
+            for user in self.usersOUObject.get_children():
+                if user.dn.split(',')[0].replace('CN=','') == principalName:
+                    user.delete()
+        except:
+            pass     
+
     def createGroup(self, groupObject, groupName):
-        ldapGroupPath = ''.join(('CN=', groupName, ',', 'OU=', groupName, ',', self.ldapPathOfGroupStructureOUObject))
-        
-        
-        if not self.existsGroup(ldapGroupPath):
-            self.groupObjects[groupName] = pyad.adgroup.ADGroup.create(groupName, groupObject)
-        else:
-            self.groupObjects[groupName] = self.callGroup(ldapGroupPath)
+        try:
+	        ldapGroupPath = ''.join(('CN=', groupName, ',', 'OU=', groupName, ',', self.ldapPathOfGroupStructureOUObject))
+	        if not self.existsGroup(ldapGroupPath):
+	            self.groupObjects[groupName] = pyad.adgroup.ADGroup.create(groupName, groupObject)
+	        else:
+	            self.groupObjects[groupName] = self.callGroup(ldapGroupPath)
+        except:
+            pass
 
     def existsGroup(self, ldapGroupPath):
         try:
@@ -240,13 +278,17 @@ class LDAPAdministration(object):
 
     def createUsersFromDatabase(self):
         for userName in sorted(self.usersAndGroups['users']):
-            adNamesInfo     = self.getADNames(userName)
-            principalName   = adNamesInfo['principalName']
-            description     = self.usersAndGroups['users'][userName]['description']
-            groups          = self.usersAndGroups['users'][userName]['groups']
-            self.createUser(self.usersOUObject, userName, self.config['defaultPassword'], True, True, description)
-            for groupName in groups:
-                self.addUserToGroup(principalName, groupName)
+            try:
+	            adNamesInfo     = self.getADNames(userName)
+	            principalName   = adNamesInfo['principalName']
+	            description     = self.usersAndGroups['users'][userName]['description']
+	            groups          = self.usersAndGroups['users'][userName]['groups']
+	            self.createUser(self.usersOUObject, userName, self.config['defaultPassword'], True, True, description)
+	            for groupName in groups:
+	                self.addUserToGroup(principalName, groupName)
+            except:
+                pass
+                
         self.createClassRoomUsers()
                 
     def createClassRoomUsers(self):
@@ -263,13 +305,21 @@ class LDAPAdministration(object):
                 self.addUserToGroup(principalName, groupName)
                 directoryPath = os.path.join(self.localHomesPath, 'schulungsraum'+str(classRoomID).rjust(classRoomLength,'0'))
                 self.setAccessRulesOfDirectoryForUser(principalName, directoryPath, 'RX')
-
         leaderUsers = self.getLeaderUsers()
         for user in leaderUsers:
             principalName = re.findall(r'CN=(.+),OU.+', user.__dict__['_ADObject__ads_path'])[0]
             path = os.path.join(self.localHomesPath, 'schulungen')
             self.setAccessRulesOfDirectoryForUser(principalName, path)
-
+            
+    def resetClassRoom(self, classRoomID):
+        classRoomLength = len(str(self.config['numberOfClassRooms']))
+        userLength = len(str(self.config['numberOfComputerPerClassRoom'])) 
+        for userID in xrange(0, self.config['numberOfComputerPerClassRoom']):
+            userName        = ''.join(('S', str(classRoomID).rjust(classRoomLength,'0'), '-', str(userID).rjust(userLength,'0')))
+            adNamesInfo     = self.getADNames(userName)
+            principalName   = adNamesInfo['principalName']
+            self.resetUser(principalName)
+            
     def getLeaderUsers(self):
         try:        
             leaderUsers = self.groupObjects['Schulungsleitung'].get_members()
@@ -292,30 +342,34 @@ class LDAPAdministration(object):
         return True
 
     def createUser(self, OUObject, userName, password=None, changePasswordByLogin=False, accountIsEnabled=True, description=''):
-        adNamesInfo         = self.getADNames(userName)
-        firstName           = adNamesInfo['firstName']
-        lastName            = adNamesInfo['lastName']
-        principalName       = adNamesInfo['principalName']
-        displayName         = adNamesInfo['displayName']         
-        samAccountName      = adNamesInfo['samAccountName']
-        userAttributes                      = {}        
-        userAttributes['givenName']         = firstName
-        userAttributes['sn']                = lastName			
-        userAttributes['initials']          = self.getInitials(firstName, lastName)
-        userAttributes['displayName']       = displayName
-        userAttributes['samAccountName']    = principalName
-        userAttributes['description']       = description	
-        userAttributes['userPrincipalName'] = ''.join((principalName, '@', self.config['domainName']))
-        userAttributes['homeDrive']         = self.config['usersHomeDriveLetter'] + ':'
-        userAttributes['profilePath']       = self.getProfilePath(principalName)
-        userAttributes['homeDirectory']     = self.getHomePath(principalName)       
-        if changePasswordByLogin:
-            userAttributes['pwdLastSet'] = 0
-        if not self.existsUser(principalName):
-            self.userObjects[principalName] = pyad.aduser.ADUser.create(principalName, OUObject, password=password, upn_suffix=None, enable=accountIsEnabled, optional_attributes=userAttributes)
-        else:
-            self.userObjects[principalName] = self.callUser(principalName)
-        self.createHomeDirectory(principalName)
+        try:
+	        adNamesInfo         = self.getADNames(userName)
+	        firstName           = adNamesInfo['firstName']
+	        lastName            = adNamesInfo['lastName']
+	        principalName       = adNamesInfo['principalName']
+	        displayName         = adNamesInfo['displayName']         
+	        samAccountName      = adNamesInfo['samAccountName']
+	        userAttributes                      = {}        
+	        userAttributes['givenName']         = firstName
+	        userAttributes['sn']                = lastName			
+	        userAttributes['initials']          = self.getInitials(firstName, lastName)
+	        userAttributes['displayName']       = displayName
+	        userAttributes['samAccountName']    = principalName
+	        userAttributes['description']       = description	
+	        userAttributes['userPrincipalName'] = ''.join((principalName, '@', self.config['domainName']))
+	        userAttributes['homeDrive']         = self.config['usersHomeDriveLetter'] + ':'
+	        userAttributes['profilePath']       = self.getProfilePath(principalName)
+	        userAttributes['homeDirectory']     = self.getHomePath(principalName)       
+	        if changePasswordByLogin:
+	            userAttributes['pwdLastSet'] = 0
+	        if not self.existsUser(principalName):
+	            self.userObjects[principalName] = pyad.aduser.ADUser.create(principalName, OUObject, password=password, upn_suffix=None, enable=accountIsEnabled, optional_attributes=userAttributes)
+	        else:
+	            self.userObjects[principalName] = self.callUser(principalName)
+	        self.createHomeDirectory(principalName)
+	        print principalName
+        except:
+            pass
 
     def existsUser(self, principalName):
         try:
@@ -343,6 +397,11 @@ class LDAPAdministration(object):
         homePath = os.path.join(self.localHomesPath, principalName)
         self.createDirectory(homePath)
         self.setAccessRulesOfHomeDirectory(homePath)
+        return True
+        
+    def deleteHomeDirectory(self, principalName):
+        homePath = os.path.join(self.localHomesPath, principalName)
+        self.deleteDirectory(homePath)
         return True 
 
     def setAccessRulesOfHomeDirectory(self, homePath):
@@ -367,6 +426,16 @@ class LDAPAdministration(object):
             os.makedirs(path)
         return True   
 
+    def deleteDirectory(self, d):
+        if os.path.exists(d):
+	        for path in (os.path.join(d,f) for f in os.listdir(d)):
+	            if os.path.isdir(path):
+	                self.deleteDirectory(path)
+	            else:
+	                os.unlink(path)
+	        os.rmdir(d)
+	        return True  
+
     def shareDirectory(self, path, visible=True):
         self.shareName = self.company
         if not visible:
@@ -384,6 +453,7 @@ class LDAPAdministration(object):
         return self.getNetPath() + chr(92) + 'homes' + chr(92) + principalName 
 
     def getNetPath(self):
+        self.shareName = self.company
         #domain = self.config['domainName'].split('.')[0]
         return (2*chr(92)) + self.config['serverHostName'] + chr(92) + self.shareName
 
@@ -398,13 +468,39 @@ class LDAPAdministration(object):
 
 
 
-
+if len(sys.argv) < 2:
+	print 'SYNTAX:'
+	print sys.argv[0], '<command> [parameters]'
+	print ''
+	print 'COMMANDS:'
+	print '   --init-ad'
+	print '   --reset-user <userName>'
+	print '   --reset-room <roomNumber>'
+	print '   --reset-user-pw <userName>'
+	sys.exit(0)
 
 
 configFilePath          = 'manageAD.conf'
-
 ldap = LDAPAdministration(configFilePath)
-ldap.generateStructure()
+
+
+if sys.argv[1] == '--init-ad':
+	ldap.generateStructure()
+elif sys.argv[1] == '--reset-user':
+	if len(sys.argv) < 3:
+		sys.exit(1)
+	ldap.resetUser(sys.argv[2])
+	
+elif sys.argv[1] == '--reset-user-pw':
+	if len(sys.argv) < 3:
+		sys.exit(1)	
+	ldap.resetUserPassword(sys.argv[2])
+elif sys.argv[1] == '--reset-room':
+	if len(sys.argv) < 3:
+		sys.exit(1)	
+	ldap.resetClassRoom(sys.argv[2])
+	
+
 
 
 
